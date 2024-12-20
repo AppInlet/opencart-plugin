@@ -1,0 +1,7 @@
+{
+  "name": "tools/opencart-vodapay",
+  "type": "composer-plugin",
+  "require": {
+    "ngenius/ngenius-common": "v1.0.12"
+  }
+}
