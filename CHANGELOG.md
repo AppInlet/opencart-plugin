@@ -1,5 +1,11 @@
 # Changelog
 
+## [[1.1.2]](https://github.com/VodaPay-Gateway/opencart-plugin/releases/tag/1.1.2)
+
+### Changed
+
+- Improve token error message display.
+
 ## [[1.1.1]](https://github.com/VodaPay-Gateway/opencart-plugin/releases/tag/1.1.1)
 
 ### Fixed

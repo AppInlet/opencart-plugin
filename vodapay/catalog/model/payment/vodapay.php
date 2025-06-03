@@ -219,13 +219,15 @@ class VodaPay extends Model
     {
         $this->load->model(self::CHECKOUT_LITERAL);
         $payment_result = $apiProcessor->getPaymentResult();
+        $this->checkAndUpdatePaymentState($payment_result);
+
         if (self::VODAPAY_AUTHORISED === $this->vodapayState) {
             $this->orderStatus = $this->vodapay::VP_AUTHORISED;
             $this->load->model(self::CHECKOUT_LITERAL);
 
             $total = $order['total'];
 
-            ValueFormatter::formatCurrencyDecimals($order['currency_code'] , $total);
+            ValueFormatter::formatCurrencyDecimals($order['currency_code'], $total);
 
             $message   = 'An amount: ' . $order['currency_code'] . $total . ' has been authorised.';
             $status_id = $this->vodapay->getOrderStatusId($this, $this->vodapay::VP_AUTHORISED);
@@ -247,6 +249,7 @@ class VodaPay extends Model
     public function orderSale(array $order, ApiProcessor $apiProcessor): array|string|null
     {
         $payment_result = $apiProcessor->getPaymentResult();
+        $this->checkAndUpdatePaymentState($payment_result);
 
         if (self::VODAPAY_CAPTURED === $this->vodapayState) {
             $this->orderStatus = $this->vodapay::VP_COMPLETE;
@@ -258,7 +261,7 @@ class VodaPay extends Model
 
             $total = $order['total'];
 
-            ValueFormatter::formatCurrencyDecimals($order['currency_code'] , $total);
+            ValueFormatter::formatCurrencyDecimals($order['currency_code'], $total);
 
             $message   = 'Captured Amount: ' . $order['currency_code'] . $total . ' | Transaction ID: ' . $transaction_id;
             $status_id = $this->vodapay->getOrderStatusId($this, $this->vodapay::VP_COMPLETE);
@@ -284,6 +287,7 @@ class VodaPay extends Model
     public function orderPurchase(array $order, ApiProcessor $apiProcessor): array|string|null
     {
         $payment_result = $apiProcessor->getPaymentResult();
+        $this->checkAndUpdatePaymentState($payment_result);
 
         if (self::VODAPAY_PURCHASED === $this->vodapayState) {
             $this->orderStatus = $this->vodapay::VP_COMPLETE;
@@ -296,7 +300,7 @@ class VodaPay extends Model
 
             $total = $order['total'];
 
-            ValueFormatter::formatCurrencyDecimals($order['currency_code'] , $total);
+            ValueFormatter::formatCurrencyDecimals($order['currency_code'], $total);
 
             $message   = 'Captured Amount: ' . $order['currency_code']
                          . $total . ' | Transaction ID: ' . $transaction_id;
@@ -396,21 +400,16 @@ class VodaPay extends Model
                 $redirect_url = $this->url->link('checkout/success');
             } elseif (self::VODAPAY_STARTED === $this->vodapayState) {
                 $data_table['status'] = $this->vodapay::VP_PENDING;
+
+                if ($apiProcessor->isPaymentAbandoned()) {
+                    $data_table['status'] = VodaPayTools::VP_FAILED;
+
+                    $this->vodapayState = self::VODAPAY_FAILED;
+                    $this->updateOrderStatus($action, $order, $apiProcessor);
+                }
             } else {
                 $data_table['status'] = $this->vodapay::VP_FAILED;
-                switch ($action) {
-                    case 'SALE':
-                        $this->orderSale($order, $apiProcessor);
-                        break;
-                    case 'PURCHASE':
-                        $this->orderPurchase($order, $apiProcessor);
-                        break;
-                    case 'AUTH':
-                        $this->orderAuthorize($order, $apiProcessor);
-                        break;
-                    default:
-                        break;
-                }
+                $this->updateOrderStatus($action, $order, $apiProcessor);
                 $redirect_url = $this->url->link('checkout/failure');
             }
             $data_table['payment_id']   = $payment_id;
@@ -436,6 +435,43 @@ class VodaPay extends Model
         }
 
         return false;
+    }
+
+
+    /**
+     * @param string $action
+     * @param array $order
+     * @param ApiProcessor $apiProcessor
+     *
+     * @return void
+     */
+    public function updateOrderStatus(string $action, array $order, ApiProcessor $apiProcessor): void
+    {
+        switch ($action) {
+            case 'SALE':
+                $this->orderSale($order, $apiProcessor);
+                break;
+            case 'PURCHASE':
+                $this->orderPurchase($order, $apiProcessor);
+                break;
+            case 'AUTH':
+                $this->orderAuthorize($order, $apiProcessor);
+                break;
+            default:
+                break;
+        }
+    }
+
+    /**
+     * @param array $payment_result
+     *
+     * @return void
+     */
+    public function checkAndUpdatePaymentState(array &$payment_result): void
+    {
+        if ($payment_result['state'] === 'STARTED') {
+            $payment_result['state'] = 'FAILED';
+        }
     }
 
     /**
@@ -569,7 +605,10 @@ class VodaPay extends Model
 
                     $this->vodapayState = $paymentResult['state'] ?? '';
                     $apiProcessor       = new ApiProcessor($orderInfo);
-                    $apiProcessor->processPaymentAction($action, $this->vodapayState);
+
+                    if (!empty($orderInfo[self::EMBEDDED_LITERAL]['payment'][0]['paymentMethod'])) {
+                        $apiProcessor->processPaymentAction($action, $this->vodapayState);
+                    }
 
                     $this->vodapay->debug('VODAPAY: State is ' . $vodapayOrder['state']);
 
@@ -578,11 +617,6 @@ class VodaPay extends Model
                     $order = $this->model_checkout_order->getOrder($vodapayOrder['order_id']);
 
                     $this->session->data['order_id'] = $vodapayOrder['order_id'];
-
-                    if ($apiProcessor->isPaymentAbandoned()) {
-                        $paymentResult['state'] = self::VODAPAY_FAILED;
-                        $this->orderStatus      = $this->vodapay::VP_DECLINED;
-                    }
 
                     $this->processOrder($order, $apiProcessor, $action);
                 } else {

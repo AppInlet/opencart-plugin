@@ -1,7 +1,7 @@
 <?php
 
 // Heading
-$_['heading_title'] = 'VodaPay Digital Payment Gateway - 1.1.1';
+$_['heading_title'] = 'VodaPay Digital Payment Gateway - 1.1.2';
 
 // Text
 $_['text_extension'] = 'Extensions';
